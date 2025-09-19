@@ -176,6 +176,7 @@ class ContactListView(APIView):
                         'count': openapi.Schema(type=openapi.TYPE_INTEGER, example=2),
                         'data': openapi.Schema(
                             type=openapi.TYPE_ARRAY,
+                            
                             items=openapi.Schema(
                                 type=openapi.TYPE_OBJECT,
                                 properties={
