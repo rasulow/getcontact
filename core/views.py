@@ -226,8 +226,45 @@ class ContactListView(APIView):
                     'message': 'Request body must be a list of dictionaries'
                 }, status=status.HTTP_400_BAD_REQUEST)
             
-            # Validate each item in the list
-            serializer = ContactCreateSerializer(data=request.data, many=True)
+            # Filter out contacts with existing fullname AND phone number combination
+            new_contacts = []
+            skipped_contacts = []
+            existing_combinations = set()
+            
+            # Get all existing fullname and phone number combinations from database
+            existing_contacts = Contact.objects.filter(is_active=True).values_list('fullname', 'phone_number')
+            for name, phone in existing_contacts:
+                existing_combinations.add((name.lower(), phone.strip()))
+            
+            # Filter the request data to only include new contacts
+            for contact_data in request.data:
+                fullname = contact_data.get('fullname', '').strip()
+                phone_number = contact_data.get('phone_number', '').strip()
+                combination_key = (fullname.lower(), phone_number)
+                
+                if combination_key not in existing_combinations:
+                    new_contacts.append(contact_data)
+                else:
+                    skipped_contacts.append({
+                        'fullname': fullname,
+                        'phone_number': phone_number,
+                        'reason': 'Contact with same fullname and phone number already exists'
+                    })
+            
+            # If no new contacts to create
+            if not new_contacts:
+                return Response({
+                    'status': 'success',
+                    'message': 'No new contacts to create - all contact combinations already exist',
+                    'total_requested': len(request.data),
+                    'created_count': 0,
+                    'skipped_count': len(skipped_contacts),
+                    'created_data': [],
+                    'skipped_data': skipped_contacts
+                }, status=status.HTTP_200_OK)
+            
+            # Validate and create new contacts
+            serializer = ContactCreateSerializer(data=new_contacts, many=True)
             
             if serializer.is_valid():
                 # Create contacts
@@ -238,14 +275,17 @@ class ContactListView(APIView):
                 
                 return Response({
                     'status': 'success',
-                    'message': f'Successfully created {len(contacts)} contacts',
-                    'count': len(contacts),
-                    'data': response_serializer.data
+                    'message': f'Successfully created {len(contacts)} new contacts, skipped {len(skipped_contacts)} existing combinations',
+                    'total_requested': len(request.data),
+                    'created_count': len(contacts),
+                    'skipped_count': len(skipped_contacts),
+                    'created_data': response_serializer.data,
+                    'skipped_data': skipped_contacts
                 }, status=status.HTTP_201_CREATED)
             else:
                 return Response({
                     'status': 'error',
-                    'message': 'Validation failed',
+                    'message': 'Validation failed for new contacts',
                     'errors': serializer.errors
                 }, status=status.HTTP_400_BAD_REQUEST)
                 
